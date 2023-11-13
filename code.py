@@ -24,7 +24,7 @@ set_led(IDLE)
 history = [0 for _ in range(50)]
 print("vow-comm2 device init finished, device addr:", me.addr)
 
-comm_tx1 = Pin(14, Pin.OUT)
+comm_tx1 = Pin(2, Pin.OUT)
 comm_tx2 = Pin(3, Pin.OUT)
 comm_rx = ADC(Pin(28))
 
@@ -56,6 +56,7 @@ def debounce(value):
 async def rx():
     buf = [0]
     value = 0
+    set_led(RX)
     while True:
         while abs(buf[-1] - value) < 5000:  # this should wait around until the logical state changes
             value = comm_rx.read_u16()
@@ -69,6 +70,7 @@ async def rx():
             queue += '1'
         if 15000 < raw < 30000:
             queue += '0'
+    set_led(IDLE)
     return queue
 
 
@@ -91,16 +93,8 @@ async def dac_simplify(value):
 
 async def tx(frame):
     set_led(TX)
-    print("tx:", frame)
-
-    start_seq = '---'
-    for bit in start_seq:
-        if bit == '-':
-            await dac_simplify(2)
-        if bit == '0':
-            await dac_simplify(1)
-        else:
-            await dac_simplify(3)
+    await dac_simplify(1)
+    await uasyncio.sleep_ms(1)
 
     for bit in frame:
         await dac_simplify(3)
@@ -109,8 +103,9 @@ async def tx(frame):
         else:
             await dac_simplify(1)
 
-    await dac_simplify(0)
+    await dac_simplify(1)
     await uasyncio.sleep_ms(1)
+    await dac_simplify(0)
     set_led(IDLE)
     return
 
@@ -118,13 +113,12 @@ async def tx(frame):
 async def main():
     global comm_rx
     global comm_tx
-    # uasyncio.run(
-    #     tx(me.frame('111111', 'hello')))  # launch a new instance of tx when we want to transmit something
+    await tx(me.frame('111111', 'hello'))
 
-    queue_rx = uasyncio.run(rx())[1:]
+    queue_rx = uasyncio.run(rx())
     print("frame:", queue_rx, '; len:', len(queue_rx))
     if me.unframe(queue_rx) is not None:
         print(objects.bit2str(me.unframe(queue_rx)['data']), end='; ')
         print((me.unframe(queue_rx)['intact']), end='; ')
         print((me.unframe(queue_rx)['framelen']))
-    await uasyncio.sleep_ms(5)
+    await uasyncio.sleep_ms(500)

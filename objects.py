@@ -6,7 +6,7 @@ class Device:
     def __init__(self, addr=None):
         self.MAC_LEN = 6
         self.addr = addr
-        while self.addr is None or self.addr == '000000':
+        while self.addr is None or self.addr in ['000000', '111111']:
             self.addr = ''.join(random.choice(['0', '1']) for _ in range(self.MAC_LEN))
 
     def frame(self, to, data):
@@ -37,6 +37,7 @@ class Device:
     def unframe(self, binary):
         if len(binary) < 32:
             return
+        binary = self.fix(binary)
         ret = {}
         ret['to'] = binary[0:self.MAC_LEN]
         ret['from'] = binary[self.MAC_LEN:2 * self.MAC_LEN]
@@ -54,8 +55,14 @@ class Device:
 
         return ret
 
+    def fix(self, binary):  # fix bit shifting
+        if (bit2int(binary[2 * self.MAC_LEN:2 * self.MAC_LEN + 8]) * 2 + 1) == len(binary):
+            return binary[1:]
+        if (bit2int(binary[2 * self.MAC_LEN:2 * self.MAC_LEN + 8]) / 2 + 1) == len(binary):
+            return binary[:-1]
+
     def is_for_me(self, binary):
-        if binary[0:self.MAC_LEN] == '000000' and binary[self.MAC_LEN:2 * self.MAC_LEN] != self.addr:
+        if binary[0:self.MAC_LEN] == '111111' and binary[self.MAC_LEN:2 * self.MAC_LEN] != self.addr:
             return True
         return binary[0:self.MAC_LEN] == self.addr
 
@@ -75,11 +82,7 @@ def inv(data):
     :param data:
     :return: inverted binary string
     """
-    data = data.replace('1', '2')
-    data = data.replace('0', '1')
-    data = data.replace('2', '0')
-
-    return data
+    return ''.join(str(1-int(i)) for i in data)
 
 
 def int2bit(num, l=8):
@@ -94,11 +97,7 @@ def bit2int(binary):
 
 
 def str2bit(string):
-    binary_string = ''
-
-    for c in string:
-        binary_string += int2bit(ord(c))
-    return binary_string
+    return ''.join(int2bit(ord(c)) for c in string)
 
 
 def bit2str(binary):

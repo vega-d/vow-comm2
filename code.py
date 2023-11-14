@@ -6,10 +6,10 @@ from machine import Pin, ADC
 import objects
 import uasyncio
 
-IDLE = (255, 255, 0)
-RX = (0, 255, 0)
-TX = (0, 0, 255)
-FAIL = (255, 0, 0)
+IDLE = (55, 55, 0)
+RX = (0, 55, 0)
+TX = (0, 0, 55)
+FAIL = (55, 0, 0)
 status_led = neopixel.NeoPixel(Pin(16), 1)
 
 

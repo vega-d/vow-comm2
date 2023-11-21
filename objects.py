@@ -8,23 +8,48 @@ RX = (0, 55, 0)
 TX = (0, 0, 55)
 FAIL = (55, 0, 0)
 
+BROADCAST = '111111'
+LOCALHOST = '000000'
+
 
 class Device:
-    def __init__(self, tx1_pin, tx2_pin, rx_pin, addr=None, neopixel=None):
+    def __init__(self, tx1_pin, tx2_pin, rx_pin, fancy_name, addr=None, neopixel=None):
         self.MAC_LEN = 6
         self.addr = addr
-        while self.addr is None or self.addr in ['000000', '111111']:
+        while self.addr is None or self.addr in [BROADCAST, LOCALHOST]:
             self.addr = ''.join(random.choice(['0', '1']) for _ in range(self.MAC_LEN))
 
         self.comm_tx1 = tx1_pin
         self.comm_tx2 = tx2_pin
         self.comm_rx = ADC(rx_pin)
-
+        self.fancy_name = fancy_name
         self.status_led = neopixel
+
+        self.listeners = [Listener(r'^HI.*', self.new_mate)]
+        self.routing_table = []  # {"dest":"", "fname":""} dicts
+
+        # send out the hello packet
+        self.tx(self.frame(BROADCAST, "HI:" + self.fancy_name))
+
+    def listen_run(self):
+        queue_rx = uasyncio.run(self.rx())
+        data = self.unframe(queue_rx)
+        if data is not None:
+            for listener in self.listeners:
+                if listener.check(data['data']):
+                    listener.on_met(data)
+
+    def new_mate(self, data):
+        self.routing_table.append({
+            "dest": data['from'],
+            "fname": data['data'][3:]
+        })
 
     def frame(self, to, data):
         if not set(data) <= {'0', '1'}:
             data = str2bit(data)
+        if to == '*':
+            to = BROADCAST
         length_of_the_frame = self.MAC_LEN * 2 + 8 + len(data) + 12
         framelen_encoded = int2bit(length_of_the_frame)
         frame = ''
@@ -56,8 +81,11 @@ class Device:
     def unframe(self, binary):
         if len(binary) < 32 or binary is None:
             return
-        if (bit2int(binary[2 * self.MAC_LEN:2 * self.MAC_LEN + 8]) * 2 + 1) == len(binary):
+        if (bit2int(binary[2 * self.MAC_LEN:2 * self.MAC_LEN + 8]) * 2) == len(binary) - 1:
             binary = binary[1:]
+        if not self.is_for_me(binary):
+            return
+
         ret = {}
         ret['to'] = binary[0:self.MAC_LEN]
         ret['from'] = binary[self.MAC_LEN:2 * self.MAC_LEN]
@@ -76,7 +104,7 @@ class Device:
         return ret
 
     def is_for_me(self, binary):
-        if binary[0:self.MAC_LEN] == '111111' and binary[self.MAC_LEN:2 * self.MAC_LEN] != self.addr:
+        if binary[0:self.MAC_LEN] == BROADCAST and binary[self.MAC_LEN:2 * self.MAC_LEN] != self.addr:
             return True
         return binary[0:self.MAC_LEN] == self.addr
 
@@ -108,7 +136,7 @@ class Device:
 
     async def tx(self, frame):
         self.set_led(TX)
-        await self.set_logical_level(1)
+        await self.set_logical_level(3)
         await uasyncio.sleep_ms(1)
 
         for bit in frame:
@@ -118,7 +146,7 @@ class Device:
             else:
                 await self.set_logical_level(1)
 
-        await self.set_logical_level(1)
+        await self.set_logical_level(3)
         await uasyncio.sleep_ms(1)
         await self.set_logical_level(0)
         self.set_led(IDLE)
@@ -154,7 +182,7 @@ def inv(data):
     :param data:
     :return: inverted binary string
     """
-    return ''.join(str(1-int(i)) for i in data)
+    return ''.join(str(1 - int(i)) for i in data)
 
 
 def int2bit(num, l=8):
@@ -181,3 +209,13 @@ def bit2str(binary):
 
 
 print("objects library imported")
+
+
+class Listener:
+    def __init__(self, condition, on_met):
+        self.condition = condition
+        self.on_met = on_met
+
+    def _check(self, packet):
+        import re
+        return re.match(self.condition, packet)

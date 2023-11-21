@@ -24,6 +24,7 @@ class Device:
         self.comm_rx = ADC(rx_pin)
         self.fancy_name = fancy_name
         self.status_led = neopixel
+        self._tx_lock = False
 
         self.listeners = [Listener(r'^HI.*', self.new_mate)]
         self.routing_table = []  # {"dest":"", "fname":""} dicts
@@ -31,7 +32,11 @@ class Device:
         # send out the hello packet
         self.tx(self.frame(BROADCAST, "HI:" + self.fancy_name))
 
-    def listen_run(self):
+    def listener_add(self, listener):
+        if listener not in self.listeners:
+            self.listeners.append(listener)
+
+    def listener_run(self):
         queue_rx = uasyncio.run(self.rx())
         data = self.unframe(queue_rx)
         if data is not None:
@@ -135,6 +140,9 @@ class Device:
         return queue
 
     async def tx(self, frame):
+        while self._tx_lock:  # delay transmission if the lock is engaged
+            await uasyncio.sleep_ms(1)
+        self._tx_lock = True
         self.set_led(TX)
         await self.set_logical_level(3)
         await uasyncio.sleep_ms(1)
@@ -150,6 +158,7 @@ class Device:
         await uasyncio.sleep_ms(1)
         await self.set_logical_level(0)
         self.set_led(IDLE)
+        self._tx_lock = False
         return
 
     async def set_logical_level(self, value):
